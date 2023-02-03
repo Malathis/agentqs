@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
+	"time"
 )
 
 type Schedule struct {
@@ -35,24 +37,45 @@ var Schedules []Schedule
 // that we can populate by creating spls from scheudles
 var Spls []Spl
 
+func homePage(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "AgentQS homepage endpoint hit")
+}
+
+func receiveAckFromAgentQ(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Endpoint Hit: receiveAckFromAgentQ")
+
+	responseData, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(string(responseData))
+}
+
+func handleRequests() {
+	http.HandleFunc("/", homePage)
+
+	// ack route and map it to our receiveAckFromAgentQ function like so
+	http.HandleFunc("/ackFromAgentQ", receiveAckFromAgentQ)
+	log.Fatal(http.ListenAndServe(":8081", nil))
+}
+
 func readSchedulesAndPushSpls() {
 	fmt.Println("Start of readSchedulesAndPushSpls")
 
-	// reads the schedules from schedule log table
+	// reads the schedule from schedule log table
 	Schedules = []Schedule{
-		Schedule{Name: "Andhra GAP 112206603 AP", OrderId: "QCS/011097/22-23", GovtRoNo: "ENE68-OPOM0COMM(NEWC)/1/2022-HRA"},
-		Schedule{Name: "Andhra GAP 112206603 AP AS", OrderId: "QCS/011254/22-23", GovtRoNo: "ENE68-OPOM0COMM(NEWC)/1/2022-HRA"},
+		{Id: 12500, Name: "Andhra GAP 112206603 AP", OrderId: "QCS/011097/22-23", GovtRoNo: "ENE68-OPOM0COMM(NEWC)/1/2022-HRA"},
 	}
 
-	// creates the spls
+	// creates the spl
 	Spls = []Spl{
-		Spl{Name: "SPL1", ScheduleTag: ScheduleTag{Id: 12500, Name: "Andhra GAP 112206603 AP"}},
-		Spl{Name: "SPL2", ScheduleTag: ScheduleTag{Id: 12501, Name: "Andhra GAP 112206603 AP AS"}},
+		{Name: "SPL1", ScheduleTag: ScheduleTag{Id: 12500, Name: "Andhra GAP 112206603 AP"}},
 	}
 
-	// push spls to agentq via getSpl api
+	// push spl to agentq via receiveSpls api
 	jsonValue, _ := json.Marshal(Spls)
-	response, err := http.Post("http://localhost:8082/getSpls", "application/json", bytes.NewBuffer(jsonValue))
+	response, err := http.Post("http://localhost:8082/receiveSpls", "application/json", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
 		fmt.Print(err.Error())
@@ -68,6 +91,15 @@ func readSchedulesAndPushSpls() {
 }
 
 func main() {
-	// function to read shedules from db, create spls from schedules and push spls to agentq
-	readSchedulesAndPushSpls()
+	// initialise agentqs apis
+	go handleRequests()
+
+	// end-less process
+	for {
+		rand.Seed(time.Now().UnixNano())
+		time.Sleep(time.Second * time.Duration(rand.Intn(10)))
+
+		// function to read shedule from db, create and send spl after a random wait to agentq
+		readSchedulesAndPushSpls()
+	}
 }
